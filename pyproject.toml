@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "price-list-merger"
+dynamic = ["version"]
+description = "Сводит прайс-листы поставщиков в один Excel: минимальная цена и наценка"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "ZniKDK" }]
+dependencies = [
+    "pandas==3.0.6",
+    "openpyxl==3.1.5",
+    "PyQt6==6.11.0",
+    "rapidfuzz==3.14.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "pyinstaller==6.22.3"]
+
+[project.scripts]
+price-list-merger-cli = "price_list_merger.cli:main"
+
+[project.gui-scripts]
+price-list-merger = "price_list_merger.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "price_list_merger.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
