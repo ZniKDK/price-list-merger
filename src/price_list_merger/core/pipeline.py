@@ -52,6 +52,29 @@ class SupplierSource:
         }
         return self.table
 
+    def apply_saved(self, mapping: Mapping, header_row: int | None, sheet: str | None) -> bool:
+        """Применяет запомненные настройки поставщика (профиль).
+
+        Если файл изменился и настройки к нему не подходят (нет такого листа
+        или колонок), остаётся автоподбор. Возвращает True, если профиль подошёл.
+        """
+        before = (self.sheet, self.header_row, dict(self.mapping))
+        try:
+            self.sheet, self.header_row = sheet, header_row
+            self.reload()
+        except PriceListError:
+            self.sheet, self.header_row, self.mapping = before
+            self.reload()
+            return False
+        columns = self.table.columns
+        saved = {key: column for key, column in mapping.items() if column in columns}
+        if len(saved) != len(mapping) or mapping_problems(saved):
+            self.sheet, self.header_row, self.mapping = before
+            self.reload()
+            return False
+        self.mapping = saved
+        return True
+
     def problems(self) -> list[str]:
         return mapping_problems(self.mapping)
 
