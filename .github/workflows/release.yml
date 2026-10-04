@@ -1,0 +1,52 @@
+# Выпуск новой версии: при отправке тега вида v1.2.3 GitHub сам
+# прогоняет тесты, собирает exe, установщик и архив и публикует релиз.
+# Описание релиза берётся из docs/releases/<тег>.md.
+#
+# Как выпустить версию:
+#   git tag v1.0.0
+#   git push origin v1.0.0
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # нужно, чтобы создать релиз и приложить файлы
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Установка зависимостей
+        run: pip install -r requirements-dev.txt
+      - name: Тесты
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+        run: pytest -q
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+      - name: Сборка
+        shell: pwsh
+        run: ./build.ps1
+      - name: Публикация релиза
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release create $tag `
+            (Get-ChildItem dist\*-Setup.exe).FullName `
+            (Get-ChildItem dist\*-portable.zip).FullName `
+            --title "Price List Merger $($tag.TrimStart('v'))" `
+            --notes-file "docs/releases/$tag.md"

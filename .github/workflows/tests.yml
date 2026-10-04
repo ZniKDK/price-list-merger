@@ -1,0 +1,27 @@
+# Автотесты при каждой отправке кода на GitHub и в pull request.
+# Тесты интерфейса работают без экрана (QT_QPA_PLATFORM=offscreen).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt pytest==9.1.1
+      - name: Тесты
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+        run: pytest -q
