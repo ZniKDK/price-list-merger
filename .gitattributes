@@ -1,0 +1,7 @@
+# Единые окончания строк в репозитории; скрипты Windows — с CRLF
+* text=auto
+*.ps1 text eol=crlf
+*.iss text eol=crlf
+*.png binary
+*.ico binary
+*.xlsx binary
