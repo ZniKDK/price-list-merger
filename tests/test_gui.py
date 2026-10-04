@@ -184,3 +184,33 @@ def test_proxy_sorts_numbers_not_text(app):
     proxy.sort(0, Qt.SortOrder.AscendingOrder)
     values = [proxy.index(row, 0).data() for row in range(proxy.rowCount())]
     assert values[:3] == ["9", "25", "100"]
+
+
+def test_files_from_command_line(app, demo_files, tmp_path, monkeypatch):
+    """Файлы, перетащенные на значок программы, сразу попадают в список."""
+    import sys
+
+    from price_list_merger import __main__ as entry
+    from price_list_merger.gui import main_window
+
+    opened = []
+    real_init = main_window.MainWindow.__init__
+
+    def init(self, *args, **kwargs):
+        # Профили и настройки — во временной папке, а не в настоящих
+        store = ProfileStore(tmp_path / "profiles.json")
+        settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+        real_init(self, store, settings)
+        opened.append(self)
+
+    monkeypatch.setattr(main_window.MainWindow, "__init__", init)
+    import PyQt6.QtWidgets as widgets
+
+    # Второе приложение Qt создать нельзя — main() получит уже готовое,
+    # а цикл событий (exec) сразу завершится
+    monkeypatch.setattr(widgets, "QApplication", lambda argv: app)
+    monkeypatch.setattr(QApplication, "exec", lambda self: 0)
+    monkeypatch.setattr(sys, "argv", ["prog", str(demo_files[1]), "нет-такого-файла.xlsx"])
+    assert entry.main() == 0
+    assert [source.supplier for source in opened[0].sources] == ["СтройСнаб"]
+    opened[0].close()
