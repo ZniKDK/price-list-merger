@@ -54,6 +54,14 @@ def test_apply_saved_profile(make_xlsx):
     assert source.header_row == 1
 
 
+@pytest.mark.parametrize("number, expected", [
+    (1, "1 товар"), (2, "2 товара"), (5, "5 товаров"), (11, "11 товаров"),
+    (21, "21 товар"), (32, "32 товара"), (112, "112 товаров"),
+])
+def test_plural(number, expected):
+    assert cli.plural(number, ("товар", "товара", "товаров")) == expected
+
+
 def test_parse_tier():
     tier = cli.parse_tier("1000:15,5")
     assert (tier.min_price, tier.percent) == (1000, 15.5)

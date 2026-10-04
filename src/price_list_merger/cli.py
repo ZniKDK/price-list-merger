@@ -17,11 +17,25 @@ from pathlib import Path
 from . import __version__
 from .core.exporter import export_report
 from .core.loader import PriceListError
-from .core.mapping import FIELD_BY_KEY
+from .core.mapping import FIELDS
 from .core.merging import MergeSettings
 from .core.pipeline import SupplierSource, run_merge
 from .core.pricing import ROUNDING_LABELS, MarkupTier, PricingSettings
 from .profiles import ProfileStore
+
+
+def plural(number: int, forms: tuple[str, str, str]) -> str:
+    """Склонение после числа: plural(32, ("товар", "товара", "товаров")) → «32 товара»."""
+    tail = number % 100
+    if 11 <= tail <= 14:
+        form = forms[2]
+    elif tail % 10 == 1:
+        form = forms[0]
+    elif 2 <= tail % 10 <= 4:
+        form = forms[1]
+    else:
+        form = forms[2]
+    return f"{number} {form}"
 
 
 def parse_tier(text: str) -> MarkupTier:
@@ -73,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
                 profile.mapping, profile.header_row, profile.sheet
             )
             columns = ", ".join(
-                f"{FIELD_BY_KEY[key].label} = «{column}»" for key, column in source.mapping.items()
+                f"{field.label} = «{source.mapping[field.key]}»"
+                for field in FIELDS if field.key in source.mapping
             )
             origin = "профиль" if used_profile else "автоподбор"
             print(f"{source.supplier}: строка заголовка {source.header_row + 1}, {origin}: {columns}")
@@ -93,8 +108,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     stats = report.stats()
+    products = plural(stats["products"], ("товар", "товара", "товаров"))
+    offers = plural(stats["offers"], ("предложения", "предложений", "предложений"))
     print(
-        f"Готово: {stats['products']} товаров из {stats['offers']} предложений "
+        f"Готово: {products} из {offers} "
         f"({stats['in_several']} — у нескольких поставщиков, отброшено строк: {stats['rejected']})."
     )
     print(f"Файл: {output.resolve()}")

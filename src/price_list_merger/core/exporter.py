@@ -175,5 +175,14 @@ def _format_table(sheet: Worksheet, money_columns: list[int] = (), autofilter: b
         for (cell,) in sheet.iter_rows(min_row=2, min_col=column, max_col=column):
             cell.number_format = MONEY
     for index, cells in enumerate(sheet.iter_cols(), start=1):
-        longest = max((len(str(cell.value)) for cell in cells if cell.value is not None), default=8)
-        sheet.column_dimensions[get_column_letter(index)].width = min(max(longest + 2, 10), MAX_COLUMN_WIDTH)
+        header = len(str(cells[0].value or "")) * 1.2 + 2  # шапка жирная — чуть шире
+        longest = max((len(str(cell.value)) for cell in cells[1:] if cell.value is not None), default=0)
+        width = max(header, longest + 2, 8)
+        sheet.column_dimensions[get_column_letter(index)].width = min(width, MAX_COLUMN_WIDTH)
+    # Печать: альбомный лист, вся ширина таблицы на странице, шапка на каждой странице
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.print_title_rows = "1:1"
