@@ -28,8 +28,11 @@ from price_list_merger.profiles import ProfileStore  # noqa: E402
 
 @pytest.fixture(scope="session")
 def app():
+    from price_list_merger.gui import animations
+
+    animations.set_enabled(False)  # в тестах сразу конечное состояние, без ожидания
     application = QApplication.instance() or QApplication([])
-    apply_theme(application)
+    apply_theme(application, "light")
     return application
 
 
@@ -214,3 +217,86 @@ def test_files_from_command_line(app, demo_files, tmp_path, monkeypatch):
     assert entry.main() == 0
     assert [source.supplier for source in opened[0].sources] == ["СтройСнаб"]
     opened[0].close()
+
+
+def test_theme_switch(app, window):
+    from PyQt6.QtGui import QPalette
+
+    from price_list_merger.gui.style import DARK, LIGHT, C
+
+    window.set_theme("dark")
+    assert C["bg"] == DARK["bg"]
+    assert app.palette().color(QPalette.ColorRole.Window).name().upper() == DARK["bg"].upper()
+    assert window.settings.value("ui/theme") == "dark"
+    assert window.theme_actions["dark"].isChecked()
+    assert "тёмная" in window.sidebar.theme_button.text()
+
+    window.set_theme("light")
+    assert C["bg"] == LIGHT["bg"]
+    assert window.settings.value("ui/theme") == "light"
+
+    window.set_theme("system")  # тема Windows: светлая или тёмная — главное, без ошибок
+    assert C["bg"] in (LIGHT["bg"], DARK["bg"])
+    window.set_theme("light")
+
+
+def test_highlight_follows_theme(app, window):
+    """Подсветка ячеек хранится как смысл и перекрашивается при смене темы."""
+    from price_list_merger.gui.style import DARK, LIGHT
+
+    model = DataFrameModel(pd.DataFrame({"price": [1.0]}))
+    model.set_cell_color(0, 0, "best")
+    index = model.index(0, 0)
+    window.set_theme("light")
+    assert model.data(index, Qt.ItemDataRole.BackgroundRole).color().name().upper() == LIGHT["best_bg"].upper()
+    window.set_theme("dark")
+    assert model.data(index, Qt.ItemDataRole.BackgroundRole).color().name().upper() == DARK["best_bg"].upper()
+    assert model.data(index, Qt.ItemDataRole.ForegroundRole).color().name().upper() == DARK["best_text"].upper()
+    window.set_theme("light")
+
+
+def test_no_top_menu_and_sidebar_tools(window):
+    # Верхнее меню выбивалось из оформления — всё перенесено в боковую панель
+    assert window.menuBar().actions() == []
+    assert window.sidebar.profiles_button.isVisible() or not window.isVisible()
+    assert [b.isEnabled() for b in window.sidebar.step_buttons] == [True, False, False, False]
+
+
+def test_toast_after_save(app, window, demo_files, tmp_path, monkeypatch):
+    window.files_page.add_files(demo_files)
+    window.go_to(SETTINGS)
+    window.run_merge()
+    wait_merge(app, window)
+    target = tmp_path / "свод.xlsx"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(target), "")))
+    window.save_excel()
+    assert window.toast.isVisibleTo(window)
+    assert "свод.xlsx" in window.toast.text.text()
+
+
+def test_empty_hints(app, window, demo_files):
+    result = window.result_page
+    assert result.views[0].empty_hint[0] == "Свод ещё не выполнен"
+    window.files_page.add_files(demo_files)
+    window.go_to(SETTINGS)
+    window.run_merge()
+    wait_merge(app, window)
+    result.search.setText("такого товара нет")
+    assert result.proxies[0].rowCount() == 0
+    assert result.views[0].empty_hint[0] == "Ничего не найдено"
+    result.search.clear()
+    assert result.views[0].empty_hint[0] == "Свод ещё не выполнен" or result.proxies[0].rowCount() > 0
+
+
+def test_fit_columns_not_narrower_than_header(app):
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    from price_list_merger.gui.widgets import HintTableView, fit_columns
+
+    model = DataFrameModel(pd.DataFrame({"offers": [1, 2]}), headers={"offers": "Поставщиков"})
+    view = HintTableView()
+    view.setModel(model)
+    fit_columns(view)
+    bold = QFont(view.font())
+    bold.setWeight(QFont.Weight.DemiBold)
+    assert view.columnWidth(0) >= QFontMetrics(bold).horizontalAdvance("Поставщиков") + 16

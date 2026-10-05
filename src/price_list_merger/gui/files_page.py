@@ -7,13 +7,14 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
-    QPushButton, QStackedLayout, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QStackedLayout, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..core.loader import SUPPORTED_EXTENSIONS, PriceListError
 from ..core.pipeline import SupplierSource
 from ..profiles import ProfileStore
-from .style import ERROR_COLOR
+from .style import cell_colors, icon
+from .widgets import HintTableWidget
 
 FILE_FILTER = "Прайс-листы (*.xlsx *.xlsm *.csv *.txt);;Все файлы (*.*)"
 COLUMNS = ["Поставщик", "Файл", "Лист", "Строк", "Колонки"]
@@ -32,13 +33,15 @@ class FilesPage(QWidget):
         self.last_folder = str(Path.home())
         self.setAcceptDrops(True)
 
-        self.table = QTableWidget(0, len(COLUMNS))
+        self.table = HintTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
+        self.table.setToolTip("Имя поставщика можно изменить двойным щелчком")
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setMinimumSectionSize(90)
         self.table.itemChanged.connect(self._rename)
         self.table.itemSelectionChanged.connect(self._update_buttons)
 
@@ -54,18 +57,20 @@ class FilesPage(QWidget):
         self.stack.addWidget(self.empty)
         self.stack.addWidget(self.table)
 
-        self.add_button = QPushButton("Добавить файлы…")
+        self.add_button = QPushButton("  Добавить файлы…")
+        self.add_button.setObjectName("primary")
         self.add_button.clicked.connect(self.choose_files)
-        self.demo_button = QPushButton("Демо-прайсы")
+        self.demo_button = QPushButton("  Демо-прайсы")
         self.demo_button.setToolTip("Три вымышленных поставщика с прайсами в разных форматах")
         self.demo_button.clicked.connect(self.load_demo)
-        self.remove_button = QPushButton("Убрать")
+        self.remove_button = QPushButton("  Убрать")
         self.remove_button.clicked.connect(self.remove_selected)
-        self.up_button = QPushButton("↑")
-        self.up_button.setToolTip("Выше: артикулы и названия в итоге берутся у первого поставщика")
+        self.up_button = QPushButton("  Выше")
+        self.up_button.setToolTip("Артикулы и названия в итоге берутся у поставщика, который выше")
         self.up_button.clicked.connect(lambda: self.move_selected(-1))
-        self.down_button = QPushButton("↓")
+        self.down_button = QPushButton("  Ниже")
         self.down_button.clicked.connect(lambda: self.move_selected(1))
+        self.update_icons()
 
         buttons = QHBoxLayout()
         for button in (self.add_button, self.demo_button):
@@ -79,6 +84,14 @@ class FilesPage(QWidget):
         layout.addLayout(buttons)
         layout.addLayout(self.stack, 1)
         self.refresh()
+
+    def update_icons(self) -> None:
+        """Иконки кнопок в цветах текущей темы (вызывается и при смене темы)."""
+        self.add_button.setIcon(icon("plus", "#FFFFFF"))
+        self.demo_button.setIcon(icon("sparkles"))
+        self.remove_button.setIcon(icon("trash-2"))
+        self.up_button.setIcon(icon("chevron-up"))
+        self.down_button.setIcon(icon("chevron-down"))
 
     # --- добавление файлов ---
 
@@ -168,7 +181,7 @@ class FilesPage(QWidget):
             problems = source.problems()
             cells = [
                 source.supplier,
-                str(source.path),
+                source.path.name,
                 source.sheet or "—",
                 str(len(source.table.data)) if source.table is not None else "",
                 "готово" if not problems else "нужно выбрать: " + "; ".join(problems),
@@ -177,8 +190,15 @@ class FilesPage(QWidget):
                 item = QTableWidgetItem(text)
                 if column != 0:  # редактировать можно только имя поставщика
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                if column == 4 and problems:
-                    item.setBackground(ERROR_COLOR)
+                if column == 1:
+                    item.setToolTip(str(source.path))  # полный путь — в подсказке
+                if column in (2, 3):  # лист и число строк — короткие, по центру
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if column == 4:
+                    # Цвета берём из темы; при смене темы refresh() вызывается заново
+                    background, foreground = cell_colors("error" if problems else "best")
+                    item.setBackground(background)
+                    item.setForeground(foreground)
                 self.table.setItem(row, column, item)
         self.table.blockSignals(False)
         self.stack.setCurrentWidget(self.table if self.sources else self.empty)

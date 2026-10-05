@@ -10,14 +10,16 @@ import json
 
 from PyQt6.QtCore import QSettings, Qt
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
-    QHBoxLayout, QHeaderView, QLabel, QPushButton, QSlider, QTableWidget, QTableWidgetItem,
+    QAbstractItemView, QCheckBox, QDoubleSpinBox, QFormLayout, QGroupBox,
+    QHBoxLayout, QHeaderView, QLabel, QPushButton, QSlider, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
 from ..core.merging import MergeSettings
 from ..core.pricing import ROUND_NINE, ROUNDING_LABELS, MarkupTier, PricingSettings, apply_markup
+from .style import icon
 from .table_model import format_value
+from .widgets import AnimatedComboBox, HintTableWidget
 
 EXAMPLE_PRICES = (85.0, 1234.0, 15_490.0)
 
@@ -34,6 +36,7 @@ class SettingsPage(QWidget):
         self.threshold = QSlider(Qt.Orientation.Horizontal)
         self.threshold.setRange(70, 100)
         self.threshold_label = QLabel()
+        self.threshold_label.setMinimumWidth(40)  # ширина под «100%»: ползунок не прыгает
         self.threshold.valueChanged.connect(
             lambda value: self.threshold_label.setText(f"{value}%")
         )
@@ -59,27 +62,29 @@ class SettingsPage(QWidget):
         self.percent.setRange(-99, 1000)
         self.percent.setDecimals(1)
         self.percent.setSuffix(" %")
-        self.rounding = QComboBox()
+        self.rounding = AnimatedComboBox()
         for key, label in ROUNDING_LABELS.items():
             self.rounding.addItem(label, key)
 
-        self.tiers = QTableWidget(0, 2)
+        self.tiers = HintTableWidget(0, 2, "Ступеней нет", "Наценка одна для всех товаров")
         self.tiers.setHorizontalHeaderLabels(["Закупка от, ₽", "Наценка, %"])
         self.tiers.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tiers.verticalHeader().setVisible(False)
         self.tiers.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tiers.setMaximumHeight(170)
-        add_tier = QPushButton("Добавить ступень")
-        add_tier.clicked.connect(lambda: self._add_tier(1000, self.percent.value()))
-        remove_tier = QPushButton("Убрать")
-        remove_tier.clicked.connect(self._remove_tier)
+        self.tiers.setFixedHeight(170)
+        self.add_tier_button = QPushButton("  Добавить ступень")
+        self.add_tier_button.clicked.connect(lambda: self._add_tier(1000, self.percent.value()))
+        self.remove_tier_button = QPushButton("  Убрать")
+        self.remove_tier_button.clicked.connect(self._remove_tier)
         tier_buttons = QHBoxLayout()
-        tier_buttons.addWidget(add_tier)
-        tier_buttons.addWidget(remove_tier)
+        tier_buttons.addWidget(self.add_tier_button)
+        tier_buttons.addWidget(self.remove_tier_button)
+        self.update_icons()
         tier_buttons.addStretch()
 
         self.example = QLabel()
-        self.example.setObjectName("hint")
+        self.example.setProperty("role", "muted")
+        self.example.setWordWrap(True)
 
         markup_box = QGroupBox("Наценка")
         markup_form = QFormLayout(markup_box)
@@ -106,13 +111,19 @@ class SettingsPage(QWidget):
             signal.connect(self._update_example)
         self._update_example()
 
+    def update_icons(self) -> None:
+        self.add_tier_button.setIcon(icon("plus"))
+        self.remove_tier_button.setIcon(icon("trash-2"))
+
     # --- ступени ---
 
     def _add_tier(self, price: float, percent: float) -> None:
         row = self.tiers.rowCount()
         self.tiers.insertRow(row)
-        self.tiers.setItem(row, 0, QTableWidgetItem(f"{price:g}"))
-        self.tiers.setItem(row, 1, QTableWidgetItem(f"{percent:g}"))
+        for column, value in enumerate((price, percent)):
+            item = QTableWidgetItem(f"{value:g}")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tiers.setItem(row, column, item)
         self._update_example()
 
     def _remove_tier(self) -> None:

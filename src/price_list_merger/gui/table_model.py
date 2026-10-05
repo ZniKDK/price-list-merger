@@ -2,6 +2,10 @@
 
 QTableView не умеет показывать DataFrame напрямую — ему нужна «модель»,
 которая отвечает на вопросы «сколько строк?», «что в ячейке?», «какой цвет?».
+
+Подсветка хранится как смысл («best» — лучшая цена, «mapped» — колонка
+выбрана), а не как готовый цвет: цвет берётся из текущей темы в момент
+отрисовки, поэтому при смене темы таблица перекрашивается сама.
 """
 
 from __future__ import annotations
@@ -12,10 +16,13 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
-from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtGui import QBrush
 
-# Функция «какой фон у строки»: получает строку DataFrame, возвращает цвет или None
-RowColor = Callable[[pd.Series], QColor | None]
+from .style import cell_colors
+
+# Функция «как подсветить строку»: получает строку DataFrame,
+# возвращает вид подсветки (best, warn, error, mapped) или None
+RowColor = Callable[[pd.Series], str | None]
 
 
 def is_number(value: object) -> bool:
@@ -47,6 +54,7 @@ class DataFrameModel(QAbstractTableModel):
         headers: dict[str, str] | None = None,
         money_columns: set[str] | None = None,
         row_color: RowColor | None = None,
+        center_columns: set[str] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -54,8 +62,9 @@ class DataFrameModel(QAbstractTableModel):
         self._headers = headers or {}
         self._money = money_columns or set()
         self._row_color = row_color
-        self._cell_colors: dict[tuple[int, int], QColor] = {}
-        self._column_colors: dict[int, QColor] = {}
+        self._center = center_columns or set()
+        self._cell_colors: dict[tuple[int, int], str] = {}
+        self._column_colors: dict[int, str] = {}
         if frame is not None:
             self.set_frame(frame)
 
@@ -78,11 +87,15 @@ class DataFrameModel(QAbstractTableModel):
     def frame(self) -> pd.DataFrame:
         return self._frame
 
-    def set_cell_color(self, row: int, column: int, color: QColor) -> None:
-        self._cell_colors[(row, column)] = color
+    def set_center_columns(self, columns: set[str]) -> None:
+        self._center = columns
 
-    def set_column_color(self, column: int, color: QColor) -> None:
-        self._column_colors[column] = color
+    def set_cell_color(self, row: int, column: int, kind: str) -> None:
+        """Подсветка ячейки: kind — best, warn, error или mapped."""
+        self._cell_colors[(row, column)] = kind
+
+    def set_column_color(self, column: int, kind: str) -> None:
+        self._column_colors[column] = kind
         self.dataChanged.emit(self.index(0, column), self.index(self.rowCount() - 1, column))
 
     # --- обязательные методы модели Qt ---
@@ -106,14 +119,29 @@ class DataFrameModel(QAbstractTableModel):
             if is_number(value):
                 return float(value)
             return format_value(value).lower()
-        if role == Qt.ItemDataRole.TextAlignmentRole and is_number(value):
-            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        if role == Qt.ItemDataRole.BackgroundRole:
-            color = self._cell_colors.get((row, column), self._column_colors.get(column))
-            if color is None and self._row_color is not None:
-                color = self._row_color(self._frame.iloc[row])
-            return QBrush(color) if color is not None else None
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            # Деньги — по правому краю (разряды друг под другом), короткие
+            # значения — по центру, текст — по левому краю
+            if name in self._money:
+                horizontal = Qt.AlignmentFlag.AlignRight
+            elif name in self._center or is_number(value):
+                horizontal = Qt.AlignmentFlag.AlignHCenter
+            else:
+                horizontal = Qt.AlignmentFlag.AlignLeft
+            return int(horizontal | Qt.AlignmentFlag.AlignVCenter)
+        if role in (Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.ForegroundRole):
+            kind = self._highlight(row, column)
+            if kind is None:
+                return None
+            background, text = cell_colors(kind)
+            return QBrush(background if role == Qt.ItemDataRole.BackgroundRole else text)
         return None
+
+    def _highlight(self, row: int, column: int) -> str | None:
+        kind = self._cell_colors.get((row, column), self._column_colors.get(column))
+        if kind is None and self._row_color is not None:
+            kind = self._row_color(self._frame.iloc[row])
+        return kind
 
     def headerData(self, section: int, orientation, role=Qt.ItemDataRole.DisplayRole):
         if role != Qt.ItemDataRole.DisplayRole:

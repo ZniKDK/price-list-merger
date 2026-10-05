@@ -9,14 +9,14 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
-    QSpinBox, QTableView, QVBoxLayout, QWidget,
+    QSpinBox, QVBoxLayout, QWidget,
 )
 
 from ..core.loader import PriceListError
 from ..core.mapping import FIELDS, guess_mapping
 from ..core.pipeline import SupplierSource
-from .style import MAPPED_COLOR
 from .table_model import DataFrameModel
+from .widgets import AnimatedComboBox, HintTableView, fit_columns, set_role
 
 NOT_USED = "— не используется —"
 PREVIEW_ROWS = 300  # больше в предпросмотре не нужно, а окно не тормозит
@@ -33,9 +33,9 @@ class ColumnsPage(QWidget):
         self.sources = sources
         self._updating = False
 
-        self.supplier_box = QComboBox()
+        self.supplier_box = AnimatedComboBox()
         self.supplier_box.currentIndexChanged.connect(self._show_source)
-        self.sheet_box = QComboBox()
+        self.sheet_box = AnimatedComboBox()
         self.sheet_box.currentTextChanged.connect(self._change_sheet)
         self.header_spin = QSpinBox()
         self.header_spin.setRange(1, 10_000)
@@ -52,13 +52,13 @@ class ColumnsPage(QWidget):
         fields_box = QGroupBox("Колонки")
         fields_form = QFormLayout(fields_box)
         for field in FIELDS:
-            box = QComboBox()
+            box = AnimatedComboBox()
             box.currentIndexChanged.connect(self._change_mapping)
             self.field_boxes[field.key] = box
             label = f"{field.label}{' *' if field.required else ''}:"
             fields_form.addRow(label, box)
         hint = QLabel("* обязательно. Нужен артикул или наименование (лучше оба).")
-        hint.setObjectName("hint")
+        hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         fields_form.addRow(hint)
 
@@ -76,15 +76,17 @@ class ColumnsPage(QWidget):
         left.addStretch()
         left_widget = QWidget()
         left_widget.setLayout(left)
-        left_widget.setFixedWidth(340)
+        left_widget.setFixedWidth(360)
 
-        self.model = DataFrameModel()
-        self.preview = QTableView()
+        self.model = DataFrameModel(center_columns={"_row"})
+        self.preview = HintTableView("Нет данных", "Добавьте прайс на первом шаге")
         self.preview.setModel(self.model)
         self.preview.setAlternatingRowColors(True)
         self.preview.verticalHeader().setVisible(False)  # номер строки файла — в первой колонке
-        preview_title = QLabel("Предпросмотр прайса (номера строк — как в файле)")
-        preview_title.setObjectName("hint")
+        preview_title = QLabel("Предпросмотр прайса. Голубым — колонки, которые возьмёт программа; "
+                               "номера строк — как в файле.")
+        preview_title.setProperty("role", "muted")
+        preview_title.setWordWrap(True)
         right = QVBoxLayout()
         right.addWidget(preview_title)
         right.addWidget(self.preview, 1)
@@ -161,18 +163,15 @@ class ColumnsPage(QWidget):
         self.model.set_frame(frame, labels)
         for position, column in enumerate(frame.columns):
             if column in by_column:
-                self.model.set_column_color(position, MAPPED_COLOR)
-        self.preview.resizeColumnsToContents()
-        for position in range(len(frame.columns)):
-            if self.preview.columnWidth(position) > 320:
-                self.preview.setColumnWidth(position, 320)
+                self.model.set_column_color(position, "mapped")
+        fit_columns(self.preview, max_width=320)
         problems = source.problems()
         if problems:
             self.status.setText("⚠ " + "; ".join(problems).capitalize())
-            self.status.setStyleSheet("color: #C00000;")
+            set_role(self.status, "error")
         else:
             self.status.setText("✓ Колонки выбраны")
-            self.status.setStyleSheet("color: #2E7D32;")
+            set_role(self.status, "ok")
 
     # --- изменения пользователем ---
 
